@@ -1,31 +1,3 @@
-/*
- This file is part of program wsprd, a detector/demodulator/decoder
- for the Weak Signal Propagation Reporter (WSPR) mode.
- 
- File name: wsprd.c
- 
- Copyright 2001-2015, Joe Taylor, K1JT
- 
- Much of the present code is based on work by Steven Franke, K9AN,
- which in turn was based on earlier work by K1JT.
- 
- Copyright 2014-2015, Steven Franke, K9AN
- 
- License: GNU GPL v3
- 
- This program is free software: you can redistribute it and/or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License, or
- (at your option) any later version.
- 
- This program is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY; without even the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- GNU General Public License for more details.
- 
- You should have received a copy of the GNU General Public License
- along with this program.  If not, see <http://www.gnu.org/licenses/>.
- */
 #include <getopt.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -140,15 +112,20 @@ unsigned long readwavfile(char *ptr_to_infile, int ntrmin, double *idat, double 
         return 1;
     }
     
-    fp = fopen(ptr_to_infile,"rb");
-    if (fp == NULL) {
-        fprintf(stderr, "Cannot open data file '%s'\n", ptr_to_infile);
-        return 1;
-    }
-    nr=fread(buf2,2,22,fp);            //Read and ignore header
-    nr=fread(buf2,2,npoints,fp);       //Read raw data
+    if (ptr_to_infile == NULL){                         //                                                        FROM HERE
+      extern int parec(short *pabuf, int npoints);
+      nr = parec(buf2, npoints);
+    } else {
+      fp = fopen(ptr_to_infile,"rb");
+      if (fp == NULL) {
+          fprintf(stderr, "Cannot open data file '%s'\n", ptr_to_infile);
+          return 1;
+      }
+      nr=fread(buf2,2,22,fp);            //Read and ignore header
+      nr=fread(buf2,2,npoints,fp);       //Read raw data
 
-    fclose(fp);
+      fclose(fp);
+    }                                               //                                                           TO HERE
     if(nr!=npoints){
 		printf("Failed to read data file\n");
 		printf("requested: %lu got: %lu\n",npoints,nr);
@@ -601,7 +578,7 @@ int main(int argc, char *argv[])
     char wisdom_fname[200],all_fname[200],spots_fname[200];
     char timer_fname[200],hash_fname[200];
     char uttime[5],date[7];
-    int c,delta,maxpts=65536,verbose=0,quickmode=0,more_candidates=0, stackdecoder=0;
+    int c,delta,maxpts=65536,verbose=0,quickmode=0,more_candidates=0, stackdecoder=0, pulsemode=0;
     int writenoise=0,usehashtable=1,wspr_type=2, ipass;
     int writec2=0, npasses=2, subtraction=1;
     int shift1, lagmin, lagmax, lagstep, ifmin, ifmax, worth_a_try, not_decoded;
@@ -677,7 +654,7 @@ int main(int argc, char *argv[])
     memset(qdat,0,sizeof(double)*maxpts);
     memset(idat,0,sizeof(double)*maxpts);
     
-    while ( (c = getopt(argc, argv, "a:cC:de:f:HJmqstwvz:")) !=-1 ) {
+    while ( (c = getopt(argc, argv, "a:cC:de:f:HJmqpstwvz:")) !=-1 ) {      //                                   ADDED P
         switch (c) {
             case 'a':
                 data_dir = optarg;
@@ -710,6 +687,9 @@ int main(int argc, char *argv[])
             case 'q':  //no shift jittering
                 quickmode = 1;
                 break;
+	        case 'p':           //                                                                          FROM HERE
+		        pulsemode = 1;  
+		        break;          //                                                                           TO HERE
             case 's':  //single pass mode (same as original wsprd)
                 subtraction = 0;
                 npasses = 1;
@@ -734,12 +714,12 @@ int main(int argc, char *argv[])
         stack=malloc(stacksize*sizeof(struct snode));
     }
     
-    if( optind+1 > argc) {
-        usage();
-        return 1;
+    if( pulsemode || optind+1 > argc) {                 //                              FROM HERE
+	    pulsemode = 1;
+
     } else {
         ptr_to_infile=argv[optind];
-    }
+    }                                                   //                              TO HERE
     
     // setup metric table
     for(i=0; i<256; i++) {
@@ -783,9 +763,9 @@ int main(int argc, char *argv[])
     }
     ftimer=fopen(timer_fname,"w");
     
-    if( strstr(ptr_to_infile,".wav") ) {
-        ptr_to_infile_suffix=strstr(ptr_to_infile,".wav");
-        
+    if( strstr(ptr_to_infile,".wav")) { // changed line and added 'if (ptr_to_infile == NULL)
+	ptr_to_infile_suffix=strstr(ptr_to_infile,".wav");
+	
         t0 = clock();
         npoints=readwavfile(ptr_to_infile, wspr_type, idat, qdat);
         treadwav += (double)(clock()-t0)/CLOCKS_PER_SEC;
@@ -801,7 +781,19 @@ int main(int argc, char *argv[])
             return 1;
         }
         dialfreq -= (dialfreq_error*1.0e-06);
-    } else {
+    } else if (pulsemode == 1){                                         //              FROM HERE
+	    ptr_to_infile = "abcd.wav";
+    	ptr_to_infile_suffix = strstr(ptr_to_infile, ".wav");
+	
+        t0 = clock();
+        npoints=readwavfile(NULL, wspr_type, idat, qdat);
+        treadwav += (double)(clock()-t0)/CLOCKS_PER_SEC;
+        
+        if( npoints == 1 ) {
+            return 1;
+        }
+        dialfreq=dialfreq_cmdline - (dialfreq_error*1.0e-06);
+    }else {                                                                                         // TO HERE
         printf("Error: Failed to open %s\n",ptr_to_infile);
         printf("WSPR file must have suffix .wav or .c2\n");
         return 1;
